@@ -2,38 +2,51 @@ pipeline {
     agent any
 
     environment {
-        SF_CLIENT_ID = credentials('sf-client-id')   // store as Jenkins Secret Text
-        SF_JWT_KEY   = credentials('sf-jwt-key')     // store as Jenkins Secret File
-        SF_USERNAME  = 'your-username@company.com'
-        SF_INSTANCE  = 'https://login.salesforce.com'  // or test.salesforce.com for sandbox
+        SF_INSTANCE = 'https://login.salesforce.com'
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
                 git branch: 'main',
+                    credentialsId: 'github-creds',
                     url: 'https://github.com/your-org/your-repo.git'
             }
         }
 
-        stage('Authenticate to Salesforce') {
+        stage('Authenticate Salesforce') {
             steps {
-                bat """
-                echo Authenticating to Salesforce...
-                sf force:auth:jwt:grant ^
-                    --clientid %SF_CLIENT_ID% ^
-                    --jwtkeyfile %SF_JWT_KEY% ^
-                    --username %SF_USERNAME% ^
-                    --instanceurl %SF_INSTANCE%
+                withCredentials([
+                    string(credentialsId: 'sf-client-id', variable: 'SF_CLIENT_ID'),
+                    string(credentialsId: 'sf-username', variable: 'SF_USERNAME'),
+                    file(credentialsId: 'sf-jwt-key', variable: 'SF_JWT_KEY')
+                ]) {
+                    sh """
+                        echo 'Authenticating with Salesforce...'
+                        sf auth:jwt:grant \
+                            --clientid $SF_CLIENT_ID \
+                            --username $SF_USERNAME \
+                            --jwtkeyfile $SF_JWT_KEY \
+                            --instanceurl $SF_INSTANCE
+                    """
+                }
+            }
+        }
+
+        stage('Validate Deployment') {
+            steps {
+                sh """
+                    echo 'Running validation...'
+                    sf project deploy preview --source-dir force-app --target-org $SF_USERNAME --json
                 """
             }
         }
 
         stage('Deploy to Salesforce') {
             steps {
-                bat """
-                echo Deploying metadata to Salesforce...
-                sf project deploy start --source-dir force-app --wait 10 --verbose
+                sh """
+                    echo 'Deploying to Salesforce...'
+                    sf project deploy start --source-dir force-app --target-org $SF_USERNAME --wait 10 --verbose
                 """
             }
         }
